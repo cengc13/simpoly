@@ -49,19 +49,25 @@ See the [poly_arena_experiment notebook](notebooks/poly_arena_experiment.ipynb) 
 
 ### Generating LAMMPS inputs
 
-Generate the starting configuration and input files with [`run.py`](src/simpoly/poly_arena/simulation/run.py) (use `--help` for all options):
+Generate the starting configuration and input files with [`run.py`](src/simpoly/poly_arena/simulation/run.py) (use `--help` for all options).
+
+The main-text protocol is `21step_then_cooling`: a Polymatic-style 21-step equilibration at `--temp-k`, then an NPT cooling scan from `--temp-k` down to `--cool-temp-end-k` in `--cool-temp-step-k` steps, all in one LAMMPS run.
+
+In the paper we pick these per polymer as `exp_Tg + 160 K`, `exp_Tg − 160 K`, and `20 K` respectively (17 stages). `exp_Tg` is the `tg` column of `experiment.load_data()`.
+
+Example — Polystyrene (exp_Tg = 373 K):
 
 ```bash
 python src/simpoly/poly_arena/simulation/run.py \
-    --directory mysim/ --poly-id PS --temp-k 350 \
-    --model-type mlff --mlff-path path/to/vivace_v0.1.mliap.pt
+    --directory ps_tg/ --poly-id PS \
+    --temp-k 533 --cool-temp-end-k 213 --cool-temp-step-k 20 \
+    --protocol 21step_then_cooling \
+    --model-type mlff --mlff-path checkpoints/vivace_v0.1.mliap.pt
 ```
 
 ### Running the simulations
 
-The generated `21steps.in` is a standard LAMMPS input that loads Vivace via `pair_style mliap unified`. See the [LAMMPS quick start](#lammps-quick-start) below for the input template and the required `lmp` invocation with multi-GPU / Kokkos flags.
-
-To obtain the density-temperature data needed to derive Tg, submit several simulations with different `--temp-k` values.
+The generated `21step_then_cooling.in` is a standard LAMMPS input that loads Vivace via `pair_style mliap unified`. See the [LAMMPS quick start](#lammps-quick-start) below for the input template and the required `lmp` invocation with multi-GPU / Kokkos flags. A single run produces the full density-vs-temperature trajectory used for Tg analysis.
 
 ## Vivace
 
@@ -122,7 +128,7 @@ lmp -k on g 1 -sf kk -pk kokkos newton on neigh half -in in.lmp -log log.lammps
 For a multi-GPU production run (e.g. 4 GPUs over MPI):
 
 ```bash
-mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos neigh half -in 21steps.in
+mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos neigh half -in 21step_then_cooling.in
 ```
 
 ## Running the tests

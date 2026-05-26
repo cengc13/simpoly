@@ -329,3 +329,94 @@ def build_21steps_protocol(
     ]
 
     return LAMMPSProtocol(stages=stages, **kwargs)  # type: ignore
+
+
+def build_tg_cooling_protocol(
+    temp_start_k: float = 600.0,
+    temp_end_k: float = 100.0,
+    temp_step_k: float = 20.0,
+    npt_time_ps: float = 150.0,
+    p_final_atm: float = 1.0,
+    time_prefactor: float = 1.0,
+    pressure_couple: str = "aniso",
+    **kwargs: ty.Any,
+) -> LAMMPSProtocol:
+    """Sequential Tg cooling scan.
+
+    A chain of isothermal NPT stages stepping from *temp_start_k* down to
+    *temp_end_k* in *temp_step_k* decrements. Each stage runs for
+    *npt_time_ps* picoseconds and is named ``cool_{i:03d}_{T}K`` so chunked
+    restarts are unambiguous.
+
+    Defaults match the sequential cooling protocol used in the SimPoly
+    paper (Section "Sequential cooling protocol", appendix): 600 → 100 K in
+    20 K decrements, 150 ps per stage. Starts from an already-equilibrated
+    configuration (e.g. a ``final_npt.restart`` produced by the 21-step
+    protocol, or the prebuilt example restart).
+    """
+    npt_time_ps = float(npt_time_ps)
+    stages: list[lammps_stages.LAMMPSStage] = []
+
+    temps: list[float] = []
+    t = temp_start_k
+    while t >= temp_end_k + temp_step_k * 0.5:
+        temps.append(t)
+        t -= temp_step_k
+    if not temps or abs(temps[-1] - temp_end_k) > 0.1:
+        temps.append(temp_end_k)
+
+    for i, temp in enumerate(temps):
+        stages.append(
+            lammps_stages.NPT(
+                name=f"cool_{i:03d}_{int(temp)}K",
+                time_ps=time_prefactor * npt_time_ps,
+                temp_k=temp,
+                pressure_atm=p_final_atm,
+                pressure_couple=pressure_couple,
+            )
+        )
+
+    return LAMMPSProtocol(stages=stages, **kwargs)  # type: ignore
+
+
+def build_21step_then_cooling_protocol(
+    temp_start_k: float = 600.0,
+    temp_end_k: float = 100.0,
+    temp_step_k: float = 20.0,
+    npt_time_ps: float = 150.0,
+    p_final_atm: float = 1.0,
+    time_prefactor: float = 1.0,
+    seed: int = 42,
+    pressure_couple: str = "aniso",
+    **kwargs: ty.Any,
+) -> LAMMPSProtocol:
+    """21-step equilibration at *temp_start_k* followed by a Tg cooling scan.
+
+    Single-shot variant of :func:`build_tg_cooling_protocol` that removes
+    the dependency on an externally supplied restart: the 21-step block
+    leaves the system equilibrated at *temp_start_k*, then the cooling
+    block sweeps to *temp_end_k* in *temp_step_k* increments. Stage names
+    from the two builders do not collide.
+    """
+    eq = build_21steps_protocol(
+        temp_final_k=temp_start_k,
+        p_final_atm=p_final_atm,
+        time_prefactor=time_prefactor,
+        seed=seed,
+        pressure_couple=pressure_couple,
+        **kwargs,
+    )
+    cool = build_tg_cooling_protocol(
+        temp_start_k=temp_start_k,
+        temp_end_k=temp_end_k,
+        temp_step_k=temp_step_k,
+        npt_time_ps=npt_time_ps,
+        p_final_atm=p_final_atm,
+        time_prefactor=time_prefactor,
+        pressure_couple=pressure_couple,
+        **kwargs,
+    )
+    return LAMMPSProtocol(
+        stages=list(eq.stages) + list(cool.stages),
+        **kwargs,
+    )  # type: ignore
