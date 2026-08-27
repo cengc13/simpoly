@@ -47,6 +47,8 @@ See the [poly_data notebook](notebooks/poly_data.ipynb) for an introduction to t
 
 See the [poly_arena_experiment notebook](notebooks/poly_arena_experiment.ipynb) for the reference room-temperature densities and glass transition temperatures.
 
+All experimental densities and glass transition temperatures are taken from Bicerano, J. *Prediction of Polymer Properties*, 3rd ed., CRC Press, Boca Raton, 2002 (ISBN 978-0-429-22228-3).
+
 ### Generating LAMMPS inputs
 
 Generate the starting configuration and input files with [`run.py`](src/simpoly/poly_arena/simulation/run.py) (use `--help` for all options).
