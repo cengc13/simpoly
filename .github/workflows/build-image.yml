@@ -1,0 +1,67 @@
+name: Build and push simpoly image
+
+# Manual trigger only -- this is a heavy build (LAMMPS+Kokkos+CUDA compile
+# from source) added to work around a cluster-side rootless-podman
+# limitation (missing /etc/subuid,subgid -- see the E_NB_MD_CG project's
+# SETUP_LOG.md steps 110-118 for the full diagnosis). Building here, on a
+# GitHub-hosted runner with normal root Docker, sidesteps that entirely;
+# the cluster then just does `apptainer pull docker://ghcr.io/...`, which
+# is a plain unprivileged image pull+convert, not a privileged build.
+on:
+  workflow_dispatch:
+    inputs:
+      kokkos_cuda_archs:
+        description: >
+          Kokkos CUDA arch flag(s), semicolon/comma-separated. Set to match
+          the actual target GPU. Default here is BLACKWELL120 (RTX PRO
+          6000, compute capability 12.0) -- the GPU on the HPC cluster's
+          hpg-rtx6000 partition (vivace_build_and_check.slurm's target),
+          NOT the Dockerfile's own default (AMPERE80, i.e. A100) --
+          override at dispatch time if targeting different hardware (e.g.
+          ADA89 for the L4s on the hpg-turin partition used elsewhere in
+          this project).
+        required: false
+        default: "BLACKWELL120"
+      image_tag:
+        description: "Tag to push (in addition to :latest)"
+        required: false
+        default: "rtxpro6000-blackwell"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space (LAMMPS+CUDA build is large)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker system prune -af
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          build-args: |
+            KOKKOS_CUDA_ARCHS=${{ github.event.inputs.kokkos_cuda_archs }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/simpoly:latest
+            ghcr.io/${{ github.repository_owner }}/simpoly:${{ github.event.inputs.image_tag }}
+          # No cache-from/to: repeated builds of this Dockerfile are rare
+          # (one-off, to unblock the cluster), and the build is single-shot
+          # enough that layer caching isn't worth the extra GHA-cache setup.

@@ -1,10 +1,17 @@
 ARG CUDA_VERSION=13.0.3
 ARG UBUNTU_VERSION=22.04
 
-FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS builder
+FROM docker.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# -o APT::Sandbox::User=root: this rootless-podman account has no
+# /etc/subuid /etc/subgid registration (SETUP_LOG.md step 110), so apt's
+# default download-sandboxing (drops to the _apt user via setgroups())
+# fails with "error setting supplemental groups list: operation not
+# permitted" -- there's no second UID to map to. Disabling the sandbox
+# avoids that setgroups() call entirely; safe here since this is a
+# throwaway build container, not a long-lived multi-tenant system.
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
         build-essential cmake git wget ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -92,13 +99,16 @@ RUN find /opt/conda -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null ||
 # =====================================================================
 # Stage 2 — runtime
 # =====================================================================
-FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+FROM docker.io/nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential (gcc/g++) is required at runtime so torch.compile's
 # Inductor backend can compile generated C++ kernel wrappers. Without it,
 # `torch.compile(..., mode="reduce-overhead")` silently falls back to eager.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# -o APT::Sandbox::User=root: same subuid/subgid gap as the builder stage
+# (SETUP_LOG.md step 110/111) -- disable apt's setgroups()-requiring
+# download sandbox.
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
         ca-certificates libgomp1 build-essential \
     && rm -rf /var/lib/apt/lists/*
 
